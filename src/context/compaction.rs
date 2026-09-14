@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 
 use crate::core::agent::{CompactOutcome, Compactor};
-use crate::core::api::{CallModelParams, ModelClient};
+use crate::core::api::CallModelParams;
 use crate::core::types::{ContentBlock, Message, ModelConfig, Role};
 use crate::context::post_compact::create_post_compact_attachments;
 use crate::context::token_counting::estimate_message_tokens;
@@ -86,8 +86,7 @@ fn split_messages(messages: &[Message], after_index: Option<usize>) -> (Vec<Mess
 // ---------------------------------------------------------------------------
 
 pub struct ModelCompactor {
-    pub client: ModelClient,
-    pub api_key: String,
+    pub caller: std::sync::Arc<dyn crate::core::api::ModelCaller>,
     pub model: String,
     pub cancel: tokio_util::sync::CancellationToken,
 }
@@ -113,7 +112,7 @@ impl ModelCompactor {
         };
 
         let mut text = String::new();
-        let mut events = Box::pin(self.client.call_model(params));
+        let mut events = Box::pin(self.caller.call_model(params));
         use futures::StreamExt;
         while let Some(event) = events.as_mut().next().await {
             match event {

@@ -99,6 +99,7 @@ async fn one_shot_tool_round_trip_end_to_end() {
         work.path().to_path_buf(),
         "sonnet",
         "e2e-key",
+        nanocode::core::api::ModelProvider::Anthropic,
         PermissionMode::BypassPermissions,
         false, // headless → allow-all gate
         false, // no persistence
@@ -195,6 +196,7 @@ async fn e2e_permission_denial_round_trip() {
         work.path().to_path_buf(),
         "sonnet",
         "e2e-key",
+        nanocode::core::api::ModelProvider::Anthropic,
         PermissionMode::Default,
         false, // headless → AllowAllGate... but we want denial; use bypass=false
         false,

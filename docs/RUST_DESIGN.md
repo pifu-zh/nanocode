@@ -151,6 +151,33 @@ impl AgentLoop<'_> {
 | 会话契约 | TS transcript fixture 往返 |
 | E2E | mock 模型 one-shot：断言 stdout 结构（logo/框/分隔线经 ANSI 剥离后文本对拍） |
 
+## 4.6 Model Provider 抽象（OpenAI 支持）
+
+内部消息表示保持 Anthropic 风格（`Message`/`ContentBlock`）为规范格式，
+provider 差异全部收敛在 Model 边界：
+
+```
+ModelCaller (trait) ← agent loop 唯一依赖
+  ├─ ModelClient   (Anthropic Messages SSE, x-api-key)
+  └─ OpenAIClient  (Chat Completions SSE, Bearer)   ← src/core/openai.rs
+```
+
+出向转换（内部→OpenAI）：system blocks → 首条 system 消息；user 的
+tool_result 块 → 独立 tool 消息（先于同消息内 text）；assistant 的
+tool_use → tool_calls（arguments 序列化为字符串）；thinking 丢弃
+（协议无对应，签名不可跨协议回传）。cache_control 不存在则忽略。
+
+入向归一化（OpenAI SSE→AgentEvent）：delta.content→AssistantText；
+delta.reasoning_content（DeepSeek/GLM 风格）→Thinking；delta.tool_calls
+按 index 聚合、[DONE] 时 yield 完整 ToolUse；finish_reason 映射
+stop→end_turn / tool_calls→tool_use / length→max_tokens；
+stream_options.include_usage 取 prompt/completion tokens。
+
+选择：CLI `--provider anthropic|openai`（env NANOCODE_PROVIDER 兜底）；
+openai 用 OPENAI_API_KEY / OPENAI_BASE_URL（默认 api.openai.com/v1）。
+错误分类复用 classify_error（OpenAI 错误体 {"error":{message,code,type}}
+走 HTTP status + message 前缀路径）。
+
 ## 5. 与原实现的刻意差异清单（唯一允许的偏差面）
 
 1. 死依赖不移植（diff、turndown 可选路径→用 Rust HTML→markdown crate，保留纯文本回落）。

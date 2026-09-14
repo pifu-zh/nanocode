@@ -40,6 +40,23 @@ export ANTHROPIC_BASE_URL="https://open.bigmodel.cn/api/anthropic"
 prompt 缓存命中（cache read）、401 错误分类全部通过（`tests/zhipu_live.rs`，
 `ZHIPU_LIVE_E2E=1 cargo test --test zhipu_live` 触发）。
 
+### OpenAI 及兼容端点（原生 provider）
+
+```bash
+export OPENAI_API_KEY="sk-..."                              # OpenAI 官方
+./target/release/nanocode --provider openai --model gpt-4o-mini
+
+# 任意 OpenAI 兼容端点（DeepSeek / vLLM / llama.cpp / GLM paas/v4 ...）
+export OPENAI_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+export OPENAI_API_KEY="<智谱 key>"
+./target/release/nanocode --provider openai --model GLM-5.3-Flash
+```
+
+协议转换在 provider 边界完成（内部表示不变）：system blocks → system 消息、
+tool_use/tool_result ↔ tool_calls/tool 消息、`delta.tool_calls` 增量聚合、
+`reasoning_content`（DeepSeek/GLM 风格）→ thinking 渲染、`[DONE]` 组装、
+`stream_options.include_usage` 取用量。也可用 `NANOCODE_PROVIDER=openai` 环境变量。
+
 ### Anthropic / OpenRouter
 
 export ANTHROPIC_API_KEY="sk-ant-..."          # 或 OPENROUTER_API_KEY
@@ -57,7 +74,7 @@ export ANTHROPIC_BASE_URL="https://openrouter.ai/api"  # 可选：OpenAI 兼容�
 ## 测试
 
 ```bash
-cargo test        # 229 tests（226 单元/E2E + 3 智谱 live，后者需 ZHIPU_LIVE_E2E=1）
+cargo test        # 250 tests（244 单元/E2E + 3 智谱 Anthropic live + 3 OpenAI live，live 需对应 env 触发）
 cargo clippy      # 0 warnings
 ```
 
@@ -67,7 +84,8 @@ cargo clippy      # 0 warnings
 2. 环境信息行 `Node version` → `Rust version`（等价替换）。
 3. 工具并发限流用 Semaphore 精确实现（TS 的 Promise.race 限流有 bug，可观察行为一致：≤10 并发、结果按原序）。
 4. `diff`/`turndown` 依赖未迁移（前者是死依赖；HTML→markdown 用轻量转换器，保留纯文本回落路径）。
-5. **GLM/智谱适配**：thinking 块携带 `signature` 回传（GLM 的 `signature_delta` 必须随
+5. **OpenAI 原生 provider**（超出 TS v0.1.0 能力，属任务书 Target 的 LLM provider abstraction 延伸）：`src/core/openai.rs` 以 `ModelCaller` trait 并入，行为差异全部收敛在协议边界。
+6. **GLM/智谱适配**：thinking 块携带 `signature` 回传（GLM 的 `signature_delta` 必须随
    assistant 历史回传，否则后续请求被拒）；GLM 的 `input_tokens` 在 `message_delta` 中
    才出现（Anthropic 在 `message_start`），解码器两处都取；模型注册表含 GLM-5.3 /
    GLM-5.3-Flash（1M ctx / 128K out，套餐计费单价 0）。

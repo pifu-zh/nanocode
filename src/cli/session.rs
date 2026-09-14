@@ -16,7 +16,7 @@ use crate::cli::format::{
 use crate::cli::permission::{AllowAllGate, InteractiveGate};
 use crate::cli::spinner;
 use crate::core::agent::{AgentLoop, QueryParams};
-use crate::core::api::{get_model_config, ModelClient};
+use crate::core::api::get_model_config;
 use crate::core::types::{
     AgentEvent, ModelConfig, PermissionDecision, PermissionMode,
 };
@@ -35,6 +35,7 @@ pub enum CommandOutcome {
 
 pub struct SessionState {
     pub api_key: String,
+    pub provider: crate::core::api::ModelProvider,
     pub messages: Arc<Mutex<Vec<crate::core::types::Message>>>,
     pub registry: ToolRegistry,
     pub model_config: RwLock<ModelConfig>,
@@ -59,6 +60,7 @@ impl SessionState {
         cwd: PathBuf,
         model: &str,
         api_key: &str,
+        provider: crate::core::api::ModelProvider,
         permission_mode: PermissionMode,
         interactive: bool,
         persist: bool,
@@ -93,6 +95,7 @@ impl SessionState {
 
         SessionState {
             api_key: api_key.to_string(),
+            provider,
             messages: Arc::new(Mutex::new(Vec::new())),
             registry,
             model_config: RwLock::new(get_model_config(model)),
@@ -179,8 +182,7 @@ impl SessionState {
 
     fn compactor(&self) -> Arc<dyn crate::core::agent::Compactor> {
         Arc::new(ModelCompactor {
-            client: ModelClient::from_env(&self.api_key()),
-            api_key: self.api_key(),
+            caller: self.provider.build_caller(&self.api_key()),
             model: self.model_config().model,
             cancel: self.tool_context.cancel.clone(),
         })
@@ -201,7 +203,7 @@ impl SessionState {
         Arc::new(QueryParams {
             messages: self.messages.clone(),
             tools: self.registry.all().to_vec(),
-            model_caller: Arc::new(ModelClient::from_env(&self.api_key())),
+            model_caller: self.provider.build_caller(&self.api_key()),
             model_config: self.model_config(),
             system_prompt_blocks: self.system_blocks(),
             max_turns: crate::core::agent::DEFAULT_MAX_TURNS,
@@ -361,11 +363,18 @@ fn _touches() {
 // One-shot mode
 // ---------------------------------------------------------------------------
 
-pub async fn run_one_shot(prompt: &str, cwd: PathBuf, model: &str, skip_permissions: bool) -> i32 {
+pub async fn run_one_shot(
+    prompt: &str,
+    cwd: PathBuf,
+    model: &str,
+    provider: crate::core::api::ModelProvider,
+    skip_permissions: bool,
+) -> i32 {
     let mut state = SessionState::new(
         cwd,
         model,
         "",
+        provider,
         if skip_permissions {
             PermissionMode::BypassPermissions
         } else {
@@ -397,6 +406,7 @@ pub async fn run_one_shot(prompt: &str, cwd: PathBuf, model: &str, skip_permissi
 pub async fn run_repl(
     cwd: PathBuf,
     model: &str,
+    provider: crate::core::api::ModelProvider,
     skip_permissions: bool,
     resume: Option<String>,
 ) -> i32 {
@@ -416,6 +426,7 @@ pub async fn run_repl(
         cwd.clone(),
         model,
         &api_key,
+        provider,
         if skip_permissions {
             PermissionMode::BypassPermissions
         } else {

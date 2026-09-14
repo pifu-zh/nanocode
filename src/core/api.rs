@@ -33,6 +33,10 @@ fn raw_model_configs() -> Vec<RawModel> {
         RawModel { name: "claude-haiku-4-5-20251001", out: 4.0, inp: 0.8, cr: 0.08, cw: 1.0, thinking: false, ctx: 200_000, max_out: 16_384 },
         RawModel { name: "GLM-5.3", out: 0.0, inp: 0.0, cr: 0.0, cw: 0.0, thinking: true, ctx: 1_000_000, max_out: 128_000 },
         RawModel { name: "GLM-5.3-Flash", out: 0.0, inp: 0.0, cr: 0.0, cw: 0.0, thinking: true, ctx: 1_000_000, max_out: 128_000 },
+        // OpenAI (native provider, src/core/openai.rs): 128K ctx / 16K out;
+        // newer models resolve through partial match or the default path.
+        RawModel { name: "gpt-4o", out: 2.5, inp: 10.0, cr: 1.25, cw: 0.0, thinking: false, ctx: 128_000, max_out: 16_384 },
+        RawModel { name: "gpt-4o-mini", out: 0.15, inp: 0.6, cr: 0.075, cw: 0.0, thinking: false, ctx: 128_000, max_out: 16_384 },
     ]
 }
 
@@ -526,6 +530,35 @@ fn decode_sse(
             yield AgentEvent::Usage { usage: acc.usage };
         }
         yield AgentEvent::TurnComplete { stop_reason: acc.stop_reason };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Provider selection
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelProvider {
+    Anthropic,
+    OpenAI,
+}
+
+impl ModelProvider {
+    pub fn parse(s: &str) -> Option<ModelProvider> {
+        match s.to_lowercase().as_str() {
+            "anthropic" => Some(ModelProvider::Anthropic),
+            "openai" => Some(ModelProvider::OpenAI),
+            _ => None,
+        }
+    }
+
+    /// Build the caller for this provider. Provider-specific env fallbacks
+    /// (OPENAI_API_KEY / OPENAI_BASE_URL) apply inside each client.
+    pub fn build_caller(self, api_key: &str) -> std::sync::Arc<dyn ModelCaller> {
+        match self {
+            ModelProvider::Anthropic => std::sync::Arc::new(ModelClient::from_env(api_key)),
+            ModelProvider::OpenAI => std::sync::Arc::new(crate::core::openai::OpenAIClient::from_env(api_key)),
+        }
     }
 }
 

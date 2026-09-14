@@ -22,6 +22,10 @@ struct CliArgs {
     #[arg(short = 'm', long = "model")]
     model: Option<String>,
 
+    /// API provider: anthropic (default) or openai
+    #[arg(long = "provider")]
+    provider: Option<String>,
+
     /// API key (or set ANTHROPIC_API_KEY)
     #[arg(long = "api-key")]
     api_key: Option<String>,
@@ -70,7 +74,8 @@ impl CliArgs {
 {}
   -p, --prompt <text>          Run single prompt and exit
   -m, --model <model>          Model name (default: sonnet)
-      --api-key <key>          API key (or set ANTHROPIC_API_KEY)
+      --provider <name>        anthropic (default) or openai
+      --api-key <key>          API key (provider env var if omitted)
       --max-turns <n>          Max agent turns (default: 200)
       --permission-mode <mode> default|plan|acceptEdits|bypassPermissions
       --dangerously-skip-permissions  Bypass all permission checks
@@ -108,34 +113,64 @@ async fn main() {
         std::process::exit(0);
     }
 
-    // API key precedence: --api-key > ANTHROPIC_API_KEY > OPENROUTER_API_KEY
+    // Provider: --provider > NANOCODE_PROVIDER > default anthropic
+    let provider_name = args
+        .provider
+        .clone()
+        .or_else(|| std::env::var("NANOCODE_PROVIDER").ok())
+        .unwrap_or_else(|| "anthropic".into());
+    let Some(provider) = nanocode::core::api::ModelProvider::parse(&provider_name) else {
+        eprintln!(
+            "{}",
+            nanocode::cli::format::red(&format!(
+                "Error: unknown provider \"{provider_name}\" (expected anthropic or openai)"
+            ))
+        );
+        std::process::exit(1);
+    };
+
+    // API key precedence: --api-key > provider env var
+    //   anthropic: ANTHROPIC_API_KEY > OPENROUTER_API_KEY
+    //   openai:    OPENAI_API_KEY
     if let Some(key) = &args.api_key {
         std::env::set_var("ANTHROPIC_API_KEY", key);
+        std::env::set_var("OPENAI_API_KEY", key);
     }
-    let has_key = std::env::var("ANTHROPIC_API_KEY")
-        .or_else(|_| std::env::var("OPENROUTER_API_KEY"))
-        .map(|k| !k.is_empty())
-        .unwrap_or(false);
+    let has_key = match provider {
+        nanocode::core::api::ModelProvider::Anthropic => std::env::var("ANTHROPIC_API_KEY")
+            .or_else(|_| std::env::var("OPENROUTER_API_KEY"))
+            .map(|k| !k.is_empty())
+            .unwrap_or(false),
+        nanocode::core::api::ModelProvider::OpenAI => {
+            std::env::var("OPENAI_API_KEY").map(|k| !k.is_empty()).unwrap_or(false)
+        }
+    };
     if !has_key {
         eprintln!(
             "{}\n{}",
-            nanocode::cli::format::red("Error: ANTHROPIC_API_KEY not set."),
-            nanocode::cli::format::dim("Set it via environment variable or --api-key flag.")
+            nanocode::cli::format::red("Error: API key not set."),
+            nanocode::cli::format::dim(
+                "Set ANTHROPIC_API_KEY (or OPENAI_API_KEY for --provider openai), or use --api-key."
+            )
         );
         std::process::exit(1);
     }
 
-    let model = std::env::var("ANTHROPIC_MODEL")
-        .unwrap_or_else(|_| args.model.clone().unwrap_or_else(|| "sonnet".into()));
+    let default_model = match provider {
+        nanocode::core::api::ModelProvider::Anthropic => "sonnet".to_string(),
+        nanocode::core::api::ModelProvider::OpenAI => "gpt-4o-mini".to_string(),
+    };
+    let model = args.model.clone().unwrap_or(default_model);
     let prompt = args.prompt.clone().or(args.prompt_positional);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     let exit_code = if let Some(prompt) = prompt {
-        run_one_shot(&prompt, cwd, &model, args.dangerously_skip_permissions).await
+        run_one_shot(&prompt, cwd, &model, provider, args.dangerously_skip_permissions).await
     } else {
         run_repl(
             cwd,
             &model,
+            provider,
             args.dangerously_skip_permissions,
             args.resume.clone(),
         )
