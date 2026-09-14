@@ -1,0 +1,41 @@
+[package]
+name = "nanocode"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight AI coding agent for the terminal — Rust reimplementation of nanocode"
+license = "MIT"
+
+[[bin]]
+name = "nanocode"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "gzip", "rustls-tls"] }
+futures = "0.3"
+async-stream = "0.3"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "0.8"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+rand = "0.8"
+bytes = "1"
+regex = "1"
+encoding_rs = "0.8"
+glob = "0.3"
+dirs = "5"
+rustyline = "14"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
+[profile.release]
+lto = true
+strip = true
